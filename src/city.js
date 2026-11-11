@@ -261,8 +261,16 @@ export function buildTrees(man, buf, T, clear) {
 
 // ------------------------------------------------------------------ roads (crisp ribbons draped on the terrain)
 const ROAD_COL = { 0: 0x6e7278, 1: 0x74777b, 2: 0x7c7e79, 3: 0x82837c, 4: 0x8b8a83, 5: 0xa39a88, 9: 0x5a524b };
+// Elevated stretches the map data does not flag as bridges: centre (east, north), flat radius, ramp length, deck height (m)
+const FLYOVERS = [{ x: 4300, n: 2715, r: 290, ramp: 150, h: 7.5 }];
+function flyH(x, z) {
+  let e = 0;
+  for (const f of FLYOVERS) { const t = Math.min(Math.max(1 - (Math.hypot(x - f.x, z + f.n) - f.r) / f.ramp, 0), 1); e = Math.max(e, f.h * t * t * (3 - 2 * t)); }
+  return e;
+}
 export function buildRoads(roads, T, U) {
-  const pos = [], col = [], uv = [], idx = [], c = new THREE.Color();
+  const pos = [], col = [], uv = [], idx = [], c = new THREE.Color(), fp = [], fi = [];
+  const quad = (a, b, c2, d) => { const k = fp.length / 3; fp.push(...a, ...b, ...c2, ...d); fi.push(k, k + 1, k + 2, k, k + 2, k + 3); };
   for (const r of roads) {
     // subdivide so the ribbon follows the ground
     const P = []; const p = r.p;
@@ -274,14 +282,30 @@ export function buildRoads(roads, T, U) {
     if (P.length < 2) continue;
     c.set(ROAD_COL[r.c] ?? 0x6d6c66);
     const hw = r.w / 2, lift = r.c === 9 ? 1.25 : 1.1 - r.c * 0.06, base = pos.length / 3, major = r.c <= 1 ? 1 : r.c === 9 ? 2 : 0; let run = 0;
+    const prevEdge = { '-1': null, 1: null }; let prevRun = 0;
     for (let i = 0; i < P.length; i++) {
       const a = P[Math.max(i - 1, 0)], b = P[Math.min(i + 1, P.length - 1)], q = P[i];
       let dx = b[0] - a[0], dz = b[1] - a[1]; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
       if (i) run += Math.hypot(q[0] - P[i - 1][0], q[1] - P[i - 1][1]);
+      const el = r.c === 0 ? flyH(q[0], q[1]) : 0, gy = Math.max(T.heightAt(q[0], q[1]), 0.2);
       for (const s of [-1, 1]) {
         const x = q[0] - dz * hw * s, z = q[1] + dx * hw * s;
-        pos.push(x, Math.max(T.heightAt(x, z), T.heightAt(q[0], q[1]), 0.2) + lift, z); col.push(c.r, c.g, c.b); uv.push(s > 0 ? 1 : 0, run, major);
+        const y = el > 0.3 ? gy + lift + el : Math.max(T.heightAt(x, z), gy) + lift;
+        pos.push(x, y, z); col.push(c.r, c.g, c.b); uv.push(s > 0 ? 1 : 0, run, major);
+        if (el > 0.3) {   // deck edge: parapet above, girder face below
+          const pv = prevEdge[s]; if (pv) quad([pv[0], pv[1] + 1.0, pv[2]], [x, y + 1.0, z], [x, y - 1.4, z], [pv[0], pv[1] - 1.4, pv[2]]);
+          prevEdge[s] = [x, y, z];
+        } else prevEdge[s] = null;
       }
+      if (el > 0.3 && i) {   // deck underside, and a pier every ~30 m where the deck is high enough
+        const k = pos.length / 3; quad([pos[(k - 4) * 3], pos[(k - 4) * 3 + 1] - 1.4, pos[(k - 4) * 3 + 2]], [pos[(k - 3) * 3], pos[(k - 3) * 3 + 1] - 1.4, pos[(k - 3) * 3 + 2]], [pos[(k - 1) * 3], pos[(k - 1) * 3 + 1] - 1.4, pos[(k - 1) * 3 + 2]], [pos[(k - 2) * 3], pos[(k - 2) * 3 + 1] - 1.4, pos[(k - 2) * 3 + 2]]);
+        if (el > 3 && Math.floor(run / 30) !== Math.floor(prevRun / 30)) {
+          const w = 1.3, y0 = gy - 1, y1 = gy + lift + el - 1.4, X = q[0], Z = q[1];
+          for (const [ax, az, bx, bz] of [[-w, -w, w, -w], [w, -w, w, w], [w, w, -w, w], [-w, w, -w, -w]]) quad([X + ax, y1, Z + az], [X + bx, y1, Z + bz], [X + bx, y0, Z + bz], [X + ax, y0, Z + az]);
+          quad([X - 3.4, y1, Z - 3.4], [X + 3.4, y1, Z - 3.4], [X + 3.4, y1 - 0.01, Z + 3.4], [X - 3.4, y1 - 0.01, Z + 3.4]);
+        }
+      }
+      prevRun = run;
       if (i) { const k = base + (i - 1) * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
     }
   }
@@ -308,7 +332,11 @@ export function buildRoads(roads, T, U) {
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.56, 0.58), rails);`)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.58, 0.24) * uNight * (vRU.z > 1.5 ? 0.02 : 0.5) * diffuseColor.rgb * 4.0;');
   };
-  const m = new THREE.Mesh(g, mat); m.receiveShadow = true; m.frustumCulled = false; m.renderOrder = 1; return m;
+  const m = new THREE.Mesh(g, mat); m.receiveShadow = true; m.frustumCulled = false; m.renderOrder = 1;
+  const fg = new THREE.BufferGeometry(); fg.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3)); fg.setIndex(fi);
+  const fm = new THREE.Mesh(fg, new THREE.MeshStandardMaterial({ color: 0xb4b1a9, roughness: 0.9, flatShading: true, side: THREE.DoubleSide }));
+  fm.castShadow = fm.receiveShadow = true; fm.frustumCulled = false;
+  const grp = new THREE.Group(); grp.add(m, fm); return grp;
 }
 
 // ------------------------------------------------------------------ street lamps
