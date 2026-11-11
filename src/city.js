@@ -236,8 +236,10 @@ function treeGeos() {
 export function buildTrees(man, buf, T, clear) {
   const [gBlob, gPalm] = treeGeos(), Q = man.q, C = man.chunk;
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
-  const out = [], m4 = new THREE.Matrix4(), qt = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(), ps = new THREE.Vector3(), c = new THREE.Color();
-  for (const ch of man.tChunks) {
+  const m4 = new THREE.Matrix4(), qt = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(), ps = new THREE.Vector3(), c = new THREE.Color();
+  // returns a builder so tree chunks can be created (and thrown away) on demand as the camera moves
+  return (ch) => {
+    const out = [];
     const n = ch.n, xy = new Int16Array(buf.slice(ch.o, ch.o + 4 * n)), sz = new Uint8Array(buf, ch.o + 4 * n, n), kd = new Uint8Array(buf, ch.o + 5 * n, n);
     const ox = -man.halfX + (ch.i + 0.5) * C, oz = -(-man.halfY + (ch.j + 0.5) * C);
     let np = 0; for (let i = 0; i < n; i++) np += kd[i];
@@ -255,8 +257,8 @@ export function buildTrees(man, buf, T, clear) {
       m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere(); m.matrixAutoUpdate = false; m.frustumCulled = true;
       m.userData.c = new THREE.Vector2(ox, oz); out.push(m);
     }
-  }
-  return out;
+    return out;
+  };
 }
 
 // ------------------------------------------------------------------ roads (crisp ribbons draped on the terrain)

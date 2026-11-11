@@ -145,9 +145,13 @@ export function buildLandmarks(T, placed = []) {
   }
   // buildings modelled in Blender from photo reference (pipeline/blender_models.py), set on their mapped footprints
   const loader = new GLTFLoader();
+  const pending = [];
   for (const b of placed) {
     skips.push([b.x, -b.n, b.rx, b.rz]);
     if (!b.f) continue;
+    pending.push(b);
+  }
+  const loadModel = (b) => {
     loader.load(b.f, (gl) => {
       const o = gl.scene; o.position.set(b.x, (b.y ?? Math.max(T.heightAt(b.x, -b.n), 0.4)) + 0.05, -b.n); o.rotation.y = b.deg * Math.PI / 180;
       o.traverse((m) => { if (m.isMesh) { m.castShadow = m.receiveShadow = true; m.material.side = THREE.DoubleSide; } });
@@ -160,9 +164,11 @@ export function buildLandmarks(T, placed = []) {
         });
       }
       g.add(o);
-    });
-  }
+    }, undefined, () => setTimeout(() => pending.push(b), 4000));   // network hiccup: try again later
+  };
+  // load a model only once the camera comes near it
+  const loadNear = (x, z, R) => { for (let i = pending.length - 1; i >= 0; i--) { const b = pending[i]; if (Math.hypot(b.x - x, -b.n - z) < R + Math.max(b.rx, b.rz)) { pending.splice(i, 1); loadModel(b); } } };
   const skip = (x, z) => { for (const [sx, sz, r, r2] of skips) if (Math.abs(x - sx) < r && Math.abs(z - sz) < (r2 ?? r)) return true; return false; };
   const nearModel = (x, z) => { for (const [sx, sz, r, r2] of skips) if (Math.abs(x - sx) < r + 9 && Math.abs(z - sz) < (r2 ?? r) + 9) return true; return false; };
-  return { group: g, skip, nearModel };
+  return { group: g, skip, nearModel, loadNear };
 }

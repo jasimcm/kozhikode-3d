@@ -28,9 +28,15 @@ composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(4, 4), 0.2, 0.6, 1.0); composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
-const QUALITY = { low: { pr: 1, sh: 0, tree: 1800, bloom: false }, medium: { pr: 1.5, sh: 2048, tree: 3400, bloom: true }, high: { pr: 2, sh: 4096, tree: 5600, bloom: true } };
+// radius / maxRadius: how far from the view centre buildings are kept in memory (metres)
+const QUALITY = { low: { pr: 1, sh: 0, tree: 1300, bloom: false, radius: 1700, maxRadius: 3000, model: 2200 }, medium: { pr: 1.5, sh: 2048, tree: 2800, bloom: true, radius: 3200, maxRadius: 7500, model: 4500 }, high: { pr: 2, sh: 4096, tree: 5600, bloom: true, radius: 5500, maxRadius: 1e9, model: 1e9 } };
 let Qn = 'high', Qs = QUALITY.high;
-const autoQ = () => ((navigator.hardwareConcurrency || 4) >= 8 && innerWidth > 800 ? 'high' : (navigator.hardwareConcurrency || 4) >= 4 ? 'medium' : 'low');
+const autoQ = () => {
+  const cores = navigator.hardwareConcurrency || 4, mem = navigator.deviceMemory || 8, phone = innerWidth < 820 || matchMedia('(pointer: coarse)').matches;
+  if (mem <= 4 || cores < 4) return 'low';
+  if (phone) return cores >= 8 && mem >= 8 ? 'medium' : 'low';
+  return cores >= 8 ? 'high' : 'medium';
+};
 
 const sky = new Sky(); sky.scale.setScalar(300000); scene.add(sky);
 const skyU = sky.material.uniforms; skyU.turbidity.value = 5; skyU.mieCoefficient.value = 0.004; skyU.mieDirectionalG.value = 0.82;
@@ -154,7 +160,8 @@ function updateLabels() {
 // ------------------------------------------------------------------ load
 const bar = $('#bar i'), stage = $('#stage');
 const prog = (f, txt) => { bar.style.width = (f * 100).toFixed(1) + '%'; if (txt) stage.textContent = txt; };
-let man, lamps = null, wards = [], wardLines = null, localities = [], treeMeshes = [], bMeshes = [];
+let man, lamps = null, wards = [], wardLines = null, localities = [];
+const stream = { b: [], t: [], lm: null, bmat: null, bbuf: null, treeOf: null };
 const texLoader = new THREE.TextureLoader();
 const tex = async (url, srgb) => { const t = await texLoader.loadAsync(url); t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 8; return t; };
 const bin = (url) => fetch(url).then((r) => r.arrayBuffer()), js = (url) => fetch(url).then((r) => r.json());
@@ -183,18 +190,16 @@ async function load() {
   applyCam({ x: sx, z: sz, d: start.d * 2.6, h: start.h - 35, t: 40 }); setTime(start.time ?? 17.6);
   renderer.compile(scene, camera);
 
-  // raise buildings, nearest chunks first
-  const bmat = buildingMaterial(U), C = man.chunk;
-  const order = [...man.bChunks].sort((a, b) => Math.hypot(-T.HX + (a.i + 0.5) * C - sx, T.HY - (a.j + 0.5) * C - sz) - Math.hypot(-T.HX + (b.i + 0.5) * C - sx, T.HY - (b.j + 0.5) * C - sz));
-  let nb = 0, last = performance.now();
-  for (const ch of order) {
-    const m = buildChunk(man, ch, bbuf, bmat, lm.skip); scene.add(m); bMeshes.push(m); nb += ch.n;
-    if (performance.now() - last > 40) { prog(0.45 + 0.45 * nb / man.buildings, `Raising buildings from their footprints · ${fmtIN(nb)}`); await tick(); last = performance.now(); }
-  }
-  prog(0.93, 'Planting coconut palms'); await tick();
-  treeMeshes = buildTrees(man, tbuf, T, lm.nearModel); for (const m of treeMeshes) { m.visible = false; scene.add(m); }
-  prog(1, 'Ready'); await tick();
+  // buildings, trees and landmark models stream in around the view instead of all loading up front
   applyQuality($('#quality').value);
+  const C = man.chunk, centre = (ch) => [-T.HX + (ch.i + 0.5) * C, -(-T.HY + (ch.j + 0.5) * C)];
+  stream.lm = lm; stream.bmat = buildingMaterial(U); stream.bbuf = bbuf; stream.treeOf = buildTrees(man, tbuf, T, lm.nearModel);
+  stream.b = man.bChunks.map((ch) => ({ ch, c: centre(ch), mesh: null })); stream.t = man.tChunks.map((ch) => ({ ch, c: centre(ch), meshes: null }));
+  const first = stream.b.filter((e) => Math.hypot(e.c[0] - sx, e.c[1] - sz) < Math.min(Qs.radius, 1600)).sort((a, b) => Math.hypot(a.c[0] - sx, a.c[1] - sz) - Math.hypot(b.c[0] - sx, b.c[1] - sz));
+  let nb = 0;
+  for (const e of first) { e.mesh = buildChunk(man, e.ch, bbuf, stream.bmat, lm.skip); scene.add(e.mesh); prog(0.45 + 0.5 * ++nb / first.length, `Raising buildings from their footprints · ${fmtIN(nb)} of ${first.length} blocks`); await tick(); }
+  lm.loadNear(sx, sz, Qs.model);
+  prog(1, 'Ready'); await tick();
   $('#count').textContent = fmtIN(man.buildings);
   document.body.classList.add('ready');
   flyTo(start, 4.5); setTimeout(() => $('#hint').classList.add('gone'), 9000);
@@ -270,6 +275,8 @@ function setupUI() {
   tog('#tLabels', (on) => (showLabels = on)); tog('#tWards', (on) => { showWards = on; wardLines.visible = on; });
   tog('#tMl', (on) => { useMl = on; relabel(); });
   $('#quality').onchange = (e) => applyQuality(e.target.value);
+  $('#addBtn').onclick = (e) => { const o = $('#addPlace').classList.toggle('open'); e.currentTarget.setAttribute('aria-expanded', o); };
+  canvas.addEventListener('pointerdown', () => $('#addPlace').classList.remove('open'));
   $('#bAbout').onclick = () => { const o = !$('#about').classList.contains('open'); closePanels(); $('#about').classList.toggle('open', o); };
   document.querySelectorAll('[data-close]').forEach((b) => (b.onclick = closePanels));
   $('#compass').onclick = () => { const c = readCam(); flyTo({ x: c.x, z: c.z, d: c.d, h: 0, t: c.t }, 1.2); };
@@ -330,14 +337,37 @@ function frame() {
     sun.target.position.copy(controls.target); sun.position.copy(controls.target).addScaledVector(env.sunDir, 8000);
   }
   if (fc % 6 === 0) {
-    const td = Qs.tree + c.d * 0.25, cx = lerp(controls.target.x, camera.position.x, 0.25), cz = lerp(controls.target.z, camera.position.z, 0.25), far = c.d > 14000;
-    for (const m of treeMeshes) m.visible = !far && Math.hypot(m.userData.c.x - cx, m.userData.c.y - cz) < td;
+    streamTick(c);
     const ring = beacon.getObjectByName('ring'); if (beacon.visible) { const s = 1 + 0.25 * Math.sin(U.uTime.value * 2.4) + c.d / 2500; ring.scale.set(s, 1, s); beacon.children[0].scale.set(1 + c.d / 1500, 1, 1 + c.d / 1500); }
     $('#needle').style.transform = `rotate(${-c.h}deg)`;
   }
   if (fc % 15 === 0) updateHud(c);
   updateLabels();
   composer.render();
+}
+// Build the nearest missing chunk, drop the far ones. One build per call keeps frames smooth on slow devices.
+function streamTick(c) {
+  const fx = controls.target.x, fz = controls.target.z, R = Math.max(Qs.radius, Math.min(c.d * 1.3, Qs.maxRadius));
+  let best = null, bd = R, pendingB = 0, dropped = 0;
+  for (const e of stream.b) {
+    const d = Math.hypot(e.c[0] - fx, e.c[1] - fz);
+    if (!e.mesh) { if (d < R) { pendingB++; if (d < bd) { bd = d; best = e; } } }
+    else if (d > R * 1.5 + 700 && dropped < 2) { scene.remove(e.mesh); e.mesh.geometry.dispose(); e.mesh = null; dropped++; }
+  }
+  if (best && !fly) { best.mesh = buildChunk(man, best.ch, stream.bbuf, stream.bmat, stream.lm.skip); scene.add(best.mesh); }
+  else if (best && fc % 18 === 0) { best.mesh = buildChunk(man, best.ch, stream.bbuf, stream.bmat, stream.lm.skip); scene.add(best.mesh); }
+  const td = Qs.tree + c.d * 0.25, cx = lerp(fx, camera.position.x, 0.25), cz = lerp(fz, camera.position.z, 0.25), far = c.d > 14000;
+  let tb = null, tbd = td;
+  for (const e of stream.t) {
+    const d = Math.hypot(e.c[0] - cx, e.c[1] - cz);
+    if (e.meshes) {
+      if (d > td * 1.6 + 500) { for (const m of e.meshes) { scene.remove(m); m.dispose(); } e.meshes = null; }
+      else for (const m of e.meshes) m.visible = !far && d < td;
+    } else if (!far && d < tbd) { tbd = d; tb = e; }
+  }
+  if (tb && !best) { tb.meshes = stream.treeOf(tb.ch); for (const m of tb.meshes) scene.add(m); }
+  if (fc % 30 === 0) stream.lm.loadNear(fx, fz, Qs.model);
+  document.body.classList.toggle('streaming', pendingB > 0);
 }
 function updateHud(c) {
   const [lon, lat] = T.toLL(c.x, c.z); let best = null, bd = 1e9;
