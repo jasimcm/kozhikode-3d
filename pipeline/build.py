@@ -184,8 +184,14 @@ veg = np.clip((g - np.maximum(r, b) * 0.97) / 14.0, 0, 1) * np.clip((150 - (r + 
 veg = np.asarray(Image.fromarray((veg * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.5))).astype(np.float32) / 255
 wa = np.asarray(water_s).astype(np.float32) / 255
 veg = veg * (1 - np.clip(wa * 3, 0, 1))
-Image.merge("RGB", [road_s, water_s, Image.fromarray((veg * 255).astype(np.uint8))]).save(f"{OUT}/masks.jpg", quality=90)
-Image.merge("RGB", [rail_s, ao, Image.new("L", (MW, MH), 0)]).save(f"{OUT}/masks2.jpg", quality=88)
+mask = Image.merge("RGB", [road_s, water_s, Image.fromarray((veg * 255).astype(np.uint8))])
+mask2 = Image.merge("RGB", [rail_s, ao, Image.new("L", (MW, MH), 0)])
+mask.save(f"{OUT}/masks.jpg", quality=90)
+mask2.save(f"{OUT}/masks2.jpg", quality=88)
+for suffix, scale, quality in [("_medium", 2, 86), ("_low", 4, 84)]:
+    size = (MW // scale, MH // scale)
+    mask.resize(size, Image.LANCZOS).save(f"{OUT}/masks{suffix}.jpg", quality=quality)
+    mask2.resize(size, Image.LANCZOS).save(f"{OUT}/masks2{suffix}.jpg", quality=quality)
 
 print("trees…", flush=True)
 rng = np.random.default_rng(7)

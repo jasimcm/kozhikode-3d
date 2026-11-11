@@ -29,14 +29,29 @@ const bloom = new UnrealBloomPass(new THREE.Vector2(4, 4), 0.2, 0.6, 1.0); compo
 composer.addPass(new OutputPass());
 
 // radius / maxRadius: how far from the view centre buildings are kept in memory (metres)
-const QUALITY = { low: { pr: 1, sh: 0, tree: 1300, bloom: false, radius: 1700, maxRadius: 3000, model: 2200 }, medium: { pr: 1.5, sh: 2048, tree: 2800, bloom: true, radius: 3200, maxRadius: 7500, model: 4500 }, high: { pr: 2, sh: 4096, tree: 5600, bloom: true, radius: 5500, maxRadius: 1e9, model: 1e9 } };
+const QUALITY = { low: { pr: 1, sh: 0, tree: 1300, bloom: false, radius: 1700, maxRadius: 3000, model: 2200 }, medium: { pr: 1.5, sh: 2048, tree: 2800, bloom: true, radius: 3200, maxRadius: 7500, model: 4500 }, high: { pr: 2, sh: 4096, tree: 5600, bloom: true, radius: 5500, maxRadius: 1e9, model: 9000 } };
 let Qn = 'high', Qs = QUALITY.high;
 const autoQ = () => {
   const cores = navigator.hardwareConcurrency || 4, mem = navigator.deviceMemory || 8, phone = innerWidth < 820 || matchMedia('(pointer: coarse)').matches;
-  if (mem <= 4 || cores < 4) return 'low';
+  const net = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (net?.saveData || /(^|-)2g$/.test(net?.effectiveType || '') || mem <= 4 || cores < 4) return 'low';
   if (phone) return cores >= 8 && mem >= 8 ? 'medium' : 'low';
   return cores >= 8 ? 'high' : 'medium';
 };
+let preload = { requests: 2, startupRadius: 1100, models: 2 };
+function updatePreloadProfile() {
+  const cores = navigator.hardwareConcurrency || 4, mem = navigator.deviceMemory || 8;
+  const net = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const slowNet = net?.saveData || /(^|-)2g$/.test(net?.effectiveType || '');
+  const midNet = net?.effectiveType === '3g';
+  const phone = innerWidth < 820 || matchMedia('(pointer: coarse)').matches;
+  preload = slowNet || mem <= 4 || cores < 4
+    ? { requests: 1, startupRadius: 800, models: 1 }
+    : midNet || phone || mem < 8 || cores < 8
+      ? { requests: 2, startupRadius: 1100, models: 1 }
+      : { requests: 4, startupRadius: 1600, models: 2 };
+}
+updatePreloadProfile();
 
 const sky = new Sky(); sky.scale.setScalar(300000); scene.add(sky);
 const skyU = sky.material.uniforms; skyU.turbidity.value = 5; skyU.mieCoefficient.value = 0.004; skyU.mieDirectionalG.value = 0.82;
@@ -123,7 +138,7 @@ function resize() {
   renderer.setPixelRatio(pr); renderer.setSize(w, h, false); composer.setPixelRatio(pr); composer.setSize(w, h);
   camera.aspect = w / h; camera.updateProjectionMatrix();
 }
-addEventListener('resize', resize);
+addEventListener('resize', () => { resize(); updatePreloadProfile(); });
 
 // ------------------------------------------------------------------ labels
 const labelBox = $('#labels'), labels = [];
@@ -161,21 +176,38 @@ function updateLabels() {
 const bar = $('#bar i'), stage = $('#stage');
 const prog = (f, txt) => { bar.style.width = (f * 100).toFixed(1) + '%'; if (txt) stage.textContent = txt; };
 let man, lamps = null, wards = [], wardLines = null, localities = [];
-const stream = { b: [], t: [], lm: null, bmat: null, bbuf: null, treeOf: null };
+const stream = { b: [], t: [], lm: null, bmat: null, treeOf: null, loadingB: 0, loadingT: 0, frameAvg: 1 / 60 };
 const texLoader = new THREE.TextureLoader();
-const tex = async (url, srgb) => { const t = await texLoader.loadAsync(url); t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 8; return t; };
+const tex = async (url, srgb) => { const t = await texLoader.loadAsync(url); t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = Qn === 'low' ? 2 : Qn === 'medium' ? 4 : 8; return t; };
 const bin = (url) => fetch(url).then((r) => r.arrayBuffer()), js = (url) => fetch(url).then((r) => r.json());
 const tick = () => new Promise((r) => setTimeout(r, 0));
+const wholeBins = new Map();
+async function chunkBin(url, offset, length) {
+  const cached = wholeBins.get(url);
+  if (cached) return cached.slice(offset, offset + length);
+  const r = await fetch(url, { headers: { Range: `bytes=${offset}-${offset + length - 1}` } });
+  if (!r.ok) throw new Error(`Could not load ${url} (${r.status})`);
+  const buf = await r.arrayBuffer();
+  if (r.status === 206 || buf.byteLength === length) return buf;
+  // Local preview servers may ignore Range. Keep their full response so it is downloaded only once.
+  if (buf.byteLength >= offset + length) { wholeBins.set(url, buf); return buf.slice(offset, offset + length); }
+  throw new Error(`Incomplete response from ${url}`);
+}
+const buildingBytes = (ch) => 8 * ch.n + 4 * ch.v;
+const treeBytes = (ch) => 6 * ch.n;
+const localChunk = (ch) => ({ ...ch, o: 0 });
 
 async function load() {
-  resize();
+  applyQuality($('#quality').value);
+  updatePreloadProfile();
   prog(0.03, 'Reading the map');
   man = await js('data/manifest.json');
-  let done = 0; const N = 14, step = (p) => p.then((v) => { prog(0.05 + 0.4 * (++done / N), 'Laying out coast, rivers and hills'); return v; });
-  const [hc, hb, satCore, satBack, mask, mask2, sea, bbuf, tbuf, roads, w, loc, , placed] = await Promise.all([
+  const maskLod = Qn === 'high' ? '' : Qn === 'medium' ? '_medium' : '_low';
+  let done = 0; const N = 12, step = (p) => p.then((v) => { prog(0.05 + 0.4 * (++done / N), 'Laying out coast, rivers and hills'); return v; });
+  const [hc, hb, satCore, satBack, mask, mask2, sea, roads, w, loc, , placed] = await Promise.all([
     step(bin('data/height_core.bin')), step(bin('data/height_back.bin')), step(tex('data/sat_core.jpg', true)), step(tex('data/sat_back.jpg', true)),
-    step(tex('data/masks.jpg')), step(tex('data/masks2.jpg')), step(tex('data/sea_back.png')), step(bin('data/buildings.bin')), step(bin('data/trees.bin')),
-    step(js('data/roads.json')), step(js('data/wards.json')), step(js('data/localities.json')), step(document.fonts.ready), step(js('models/manifest.json'))]);
+    step(tex(`data/masks${maskLod}.jpg`)), step(tex(`data/masks2${maskLod}.jpg`)), step(tex('data/sea_back.png')), step(js('data/roads.json')),
+    step(js('data/wards.json')), step(js('data/localities.json')), step(document.fonts.ready), step(js('models/manifest.json'))]);
   wards = w; localities = loc;
   T = new Terrain(man, hc, hb);
   U.uMask.value = mask; U.uMask2.value = mask2; U.uSea.value = sea; U.uHalf.value.set(T.HX, T.HY);
@@ -191,14 +223,18 @@ async function load() {
   renderer.compile(scene, camera);
 
   // buildings, trees and landmark models stream in around the view instead of all loading up front
-  applyQuality($('#quality').value);
   const C = man.chunk, centre = (ch) => [-T.HX + (ch.i + 0.5) * C, -(-T.HY + (ch.j + 0.5) * C)];
-  stream.lm = lm; stream.bmat = buildingMaterial(U); stream.bbuf = bbuf; stream.treeOf = buildTrees(man, tbuf, T, lm.nearModel);
-  stream.b = man.bChunks.map((ch) => ({ ch, c: centre(ch), mesh: null })); stream.t = man.tChunks.map((ch) => ({ ch, c: centre(ch), meshes: null }));
-  const first = stream.b.filter((e) => Math.hypot(e.c[0] - sx, e.c[1] - sz) < Math.min(Qs.radius, 1600)).sort((a, b) => Math.hypot(a.c[0] - sx, a.c[1] - sz) - Math.hypot(b.c[0] - sx, b.c[1] - sz));
+  stream.lm = lm; stream.bmat = buildingMaterial(U); stream.treeOf = buildTrees(man, T, lm.nearModel);
+  stream.b = man.bChunks.map((ch) => ({ ch, local: localChunk(ch), c: centre(ch), mesh: null, buf: null, loading: false, retryAt: 0 }));
+  stream.t = man.tChunks.map((ch) => ({ ch, local: localChunk(ch), c: centre(ch), meshes: null, buf: null, loading: false, retryAt: 0 }));
+  const first = stream.b.filter((e) => Math.hypot(e.c[0] - sx, e.c[1] - sz) < Math.min(Qs.radius, preload.startupRadius)).sort((a, b) => Math.hypot(a.c[0] - sx, a.c[1] - sz) - Math.hypot(b.c[0] - sx, b.c[1] - sz));
   let nb = 0;
-  for (const e of first) { e.mesh = buildChunk(man, e.ch, bbuf, stream.bmat, lm.skip); scene.add(e.mesh); prog(0.45 + 0.5 * ++nb / first.length, `Raising buildings from their footprints · ${fmtIN(nb)} of ${first.length} blocks`); await tick(); }
-  lm.loadNear(sx, sz, Qs.model);
+  for (const e of first) {
+    const buf = await chunkBin('data/buildings.bin', e.ch.o, buildingBytes(e.ch));
+    e.mesh = buildChunk(man, e.local, buf, stream.bmat, lm.skip); scene.add(e.mesh);
+    prog(0.45 + 0.5 * ++nb / first.length, `Raising buildings from their footprints · ${fmtIN(nb)} of ${first.length} blocks`); await tick();
+  }
+  lm.loadNear(sx, sz, Qs.model, preload.models);
   prog(1, 'Ready'); await tick();
   $('#count').textContent = fmtIN(man.buildings);
   document.body.classList.add('ready');
@@ -260,6 +296,7 @@ function endTour() { tour.id = null; setAuto(false); delete document.body.datase
 function closePanels() { $('#about').classList.remove('open'); $('#postcard').classList.remove('open'); }
 function applyQuality(v) {
   Qn = v === 'auto' ? autoQ() : v; Qs = QUALITY[Qn];
+  updatePreloadProfile();
   bloom.enabled = Qs.bloom; renderer.shadowMap.enabled = Qs.sh > 0;
   if (Qs.sh) { sun.shadow.mapSize.set(Qs.sh, Qs.sh); sun.shadow.map?.dispose(); sun.shadow.map = null; }
   $('#quality').options[0].textContent = `Auto · ${autoQ()[0].toUpperCase() + autoQ().slice(1)}`;
@@ -275,8 +312,8 @@ function setupUI() {
   tog('#tLabels', (on) => (showLabels = on)); tog('#tWards', (on) => { showWards = on; wardLines.visible = on; });
   tog('#tMl', (on) => { useMl = on; relabel(); });
   $('#quality').onchange = (e) => applyQuality(e.target.value);
-  $('#addBtn').onclick = (e) => { const o = $('#addPlace').classList.toggle('open'); e.currentTarget.setAttribute('aria-expanded', o); };
-  canvas.addEventListener('pointerdown', () => $('#addPlace').classList.remove('open'));
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  connection?.addEventListener?.('change', () => { updatePreloadProfile(); if ($('#quality').value === 'auto') applyQuality('auto'); });
   $('#bAbout').onclick = () => { const o = !$('#about').classList.contains('open'); closePanels(); $('#about').classList.toggle('open', o); };
   document.querySelectorAll('[data-close]').forEach((b) => (b.onclick = closePanels));
   $('#compass').onclick = () => { const c = readCam(); flyTo({ x: c.x, z: c.z, d: c.d, h: 0, t: c.t }, 1.2); };
@@ -311,6 +348,7 @@ const clock = new THREE.Clock(); let fc = 0, shHalf = 0;
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1); U.uTime.value += dt; fc++;
+  if (!document.hidden && dt < 0.08) stream.frameAvg = lerp(stream.frameAvg, dt, 0.025);
   if (timeTween) { timeTween.t += dt / timeTween.dur; const e = ease(Math.min(timeTween.t, 1)); setTime(lerp(timeTween.a, timeTween.b, e)); if (timeTween.t >= 1) timeTween = null; }
   if (fly) {
     fly.t += dt / fly.dur; const e = ease(Math.min(fly.t, 1)), { a, b } = fly;
@@ -345,28 +383,58 @@ function frame() {
   updateLabels();
   composer.render();
 }
-// Build the nearest missing chunk, drop the far ones. One build per call keeps frames smooth on slow devices.
+function requestChunk(e, kind) {
+  const buildings = kind === 'B', url = buildings ? 'data/buildings.bin' : 'data/trees.bin';
+  const counter = buildings ? 'loadingB' : 'loadingT', bytes = buildings ? buildingBytes(e.ch) : treeBytes(e.ch);
+  e.loading = true; stream[counter]++;
+  chunkBin(url, e.ch.o, bytes).then((buf) => { e.buf = buf; }).catch((err) => {
+    e.retryAt = performance.now() + 5000; console.warn(`Nearby ${buildings ? 'buildings' : 'trees'} will retry`, err);
+  }).finally(() => { e.loading = false; stream[counter]--; });
+}
+
+// Fetch ahead of the camera, build at most one chunk per tick, and discard distant geometry.
 function streamTick(c) {
   const fx = controls.target.x, fz = controls.target.z, R = Math.max(Qs.radius, Math.min(c.d * 1.3, Qs.maxRadius));
-  let best = null, bd = R, pendingB = 0, dropped = 0;
+  const now = performance.now(), pressure = stream.frameAvg > 1 / 28 ? 1 : 0;
+  const requestLimit = Math.max(1, preload.requests - pressure), candidates = [];
+  let best = null, bd = R, pendingB = 0, dropped = 0, built = false;
   for (const e of stream.b) {
     const d = Math.hypot(e.c[0] - fx, e.c[1] - fz);
-    if (!e.mesh) { if (d < R) { pendingB++; if (d < bd) { bd = d; best = e; } } }
+    if (!e.mesh) {
+      if (d < R) {
+        pendingB++;
+        if (e.buf && d < bd) { bd = d; best = e; }
+        else if (!e.buf && !e.loading && now >= e.retryAt) candidates.push([d, e]);
+      } else if (e.buf && d > R * 1.6 + 700) e.buf = null;
+    }
     else if (d > R * 1.5 + 700 && dropped < 2) { scene.remove(e.mesh); e.mesh.geometry.dispose(); e.mesh = null; dropped++; }
   }
-  if (best && !fly) { best.mesh = buildChunk(man, best.ch, stream.bbuf, stream.bmat, stream.lm.skip); scene.add(best.mesh); }
-  else if (best && fc % 18 === 0) { best.mesh = buildChunk(man, best.ch, stream.bbuf, stream.bmat, stream.lm.skip); scene.add(best.mesh); }
+  candidates.sort((a, b) => a[0] - b[0]);
+  let free = requestLimit - stream.loadingB - stream.loadingT;
+  for (let i = 0; i < candidates.length && free > 0; i++, free--) requestChunk(candidates[i][1], 'B');
+  if (best && (!fly || fc % 18 === 0)) {
+    best.mesh = buildChunk(man, best.local, best.buf, stream.bmat, stream.lm.skip); best.buf = null; scene.add(best.mesh); built = true;
+  }
   const td = Qs.tree + c.d * 0.25, cx = lerp(fx, camera.position.x, 0.25), cz = lerp(fz, camera.position.z, 0.25), far = c.d > 14000;
-  let tb = null, tbd = td;
+  const treeCandidates = []; let tb = null, tbd = td;
   for (const e of stream.t) {
     const d = Math.hypot(e.c[0] - cx, e.c[1] - cz);
     if (e.meshes) {
       if (d > td * 1.6 + 500) { for (const m of e.meshes) { scene.remove(m); m.dispose(); } e.meshes = null; }
       else for (const m of e.meshes) m.visible = !far && d < td;
-    } else if (!far && d < tbd) { tbd = d; tb = e; }
+    } else if (!far && d < td) {
+      if (e.buf && d < tbd) { tbd = d; tb = e; }
+      else if (!e.buf && !e.loading && now >= e.retryAt) treeCandidates.push([d, e]);
+    } else if (e.buf && d > td * 1.6 + 500) e.buf = null;
   }
-  if (tb && !best) { tb.meshes = stream.treeOf(tb.ch); for (const m of tb.meshes) scene.add(m); }
-  if (fc % 30 === 0) stream.lm.loadNear(fx, fz, Qs.model);
+  // Buildings establish the scene first. Trees use only spare bandwidth and idle frame time.
+  if (pendingB < 2 && !pressure) {
+    treeCandidates.sort((a, b) => a[0] - b[0]);
+    free = requestLimit - stream.loadingB - stream.loadingT;
+    for (let i = 0; i < treeCandidates.length && free > 0; i++, free--) requestChunk(treeCandidates[i][1], 'T');
+  }
+  if (tb && !built && !pressure) { tb.meshes = stream.treeOf(tb.local, tb.buf); tb.buf = null; for (const m of tb.meshes) scene.add(m); }
+  if (fc % (pressure ? 120 : 30) === 0) stream.lm.loadNear(fx, fz, Qs.model, pressure ? 1 : preload.models);
   document.body.classList.toggle('streaming', pendingB > 0);
 }
 function updateHud(c) {
