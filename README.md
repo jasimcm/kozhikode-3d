@@ -1,6 +1,6 @@
 # Kozhikode 3D
 
-A 3D model of Kozhikode (Calicut), Kerala, built from open map data. Live at https://kozhikode-3d.vercel.app
+A 3D model of Kozhikode (Calicut), Kerala, built from open map data. Live at https://calicutcity.vercel.app
 
 - Buildings, roads, rail, water and places: Overture Maps Foundation (includes OpenStreetMap contributors, ODbL)
 - Terrain: Mapzen / AWS Terrain Tiles
