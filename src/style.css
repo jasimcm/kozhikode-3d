@@ -65,12 +65,6 @@ body[data-tour=food] #bFood { border-color: var(--coral); background: rgba(255, 
 #hud b { font: 500 17px var(--serif); }
 #hud span { font: 10.5px var(--mono); color: #c9d4d0; }
 
-/* add-your-place */
-#addPlace { position: fixed; left: 18px; bottom: 18px; z-index: 6; transition: opacity .9s .3s; }
-body:not(.ready) #addPlace, body[data-tour] #addPlace { opacity: 0; pointer-events: none; }
-#addBtn { display: flex; align-items: center; gap: 8px; padding: 8px 14px 8px 9px; border-radius: 99px; background: var(--ink); border: 1px solid var(--line); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); color: var(--tx); text-decoration: none; font-size: 12.5px; font-weight: 500; }
-#addBtn:hover { border-color: var(--foam); }
-#addBtn b { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--foam); color: #10262a; font: 600 15px/1 var(--sans); }
 #about a { color: var(--foam); }
 #streamNote { display: none; font: 10.5px var(--sans); font-style: normal; color: var(--brass); }
 body.streaming #streamNote { display: block; animation: pulse 1.2s infinite alternate; }
@@ -179,7 +173,6 @@ body:not([data-tour=food]) #tour .fine { display: none; }
   #tools { top: 12px; right: 10px; max-width: calc(100vw - 190px); overflow-x: auto; scrollbar-width: none; }
   #tools #bAbout, #tools #quality { display: none; }
   #hud { display: none; }
-  #addPlace { left: 10px; bottom: 124px; }
   #dock, body[data-tour] #dock { left: 10px; right: 10px; bottom: 10px; width: auto; transform: none; }
   #clock { font-size: 15px; min-width: 76px; }
   #presets button { padding: 4px 7px; font-size: 11px; }
