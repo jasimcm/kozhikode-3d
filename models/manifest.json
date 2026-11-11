@@ -1,0 +1,132 @@
+[
+ {
+  "f": "models/tinkerspace.glb",
+  "x": 5376.0,
+  "n": 5897.0,
+  "deg": 0,
+  "rx": 14,
+  "rz": 17
+ },
+ {
+  "f": "models/ipm.glb",
+  "x": 5396.5,
+  "n": 5816.7,
+  "deg": 2.1,
+  "rx": 20,
+  "rz": 9.5
+ },
+ {
+  "f": "models/beach.glb",
+  "x": -2800.0,
+  "n": 3600.0,
+  "deg": 0,
+  "rx": 1,
+  "rz": 1,
+  "y": 9.6,
+  "drape": true
+ },
+ {
+  "f": "models/cyberpark.glb",
+  "x": 4577.4,
+  "n": 3224.4,
+  "deg": 0,
+  "rx": 38,
+  "rz": 52
+ },
+ {
+  "f": "models/hilitebp.glb",
+  "x": 4204.6,
+  "n": 2473.5,
+  "deg": 0,
+  "rx": 46,
+  "rz": 52
+ },
+ {
+  "f": "models/hilitemall.glb",
+  "x": 4135.0,
+  "n": 2562.0,
+  "deg": 77.0,
+  "rx": 52,
+  "rz": 128
+ },
+ {
+  "f": "models/kallai.glb",
+  "x": -801.2,
+  "n": 1410.5,
+  "deg": 0,
+  "rx": 82,
+  "rz": 92,
+  "y": 1.5,
+  "drape": true
+ },
+ {
+  "f": "models/mananchira.glb",
+  "x": -1636.5,
+  "n": 3264.4,
+  "deg": 0,
+  "rx": 1,
+  "rz": 1,
+  "y": 13.5,
+  "drape": true
+ },
+ {
+  "f": "models/medcol.glb",
+  "x": 4581.3,
+  "n": 5314.9,
+  "deg": 0,
+  "rx": 97,
+  "rz": 173.5
+ },
+ {
+  "f": "models/mishkal.glb",
+  "x": -2060.6,
+  "n": 2278.8,
+  "deg": 0,
+  "rx": 17,
+  "rz": 14.5,
+  "y": 14.9,
+  "drape": false
+ },
+ {
+  "f": "models/sarovaram.glb",
+  "x": -91.7,
+  "n": 4822.1,
+  "deg": 0,
+  "rx": 1,
+  "rz": 1,
+  "y": 1.5,
+  "drape": true
+ },
+ {
+  "f": "models/smstreet.glb",
+  "x": -1466.0,
+  "n": 2860.0,
+  "deg": 0,
+  "rx": 1,
+  "rz": 1,
+  "y": 13.9,
+  "drape": true
+ },
+ {
+  "f": "models/tali.glb",
+  "x": -856.0,
+  "n": 2506.8,
+  "deg": 0,
+  "rx": 25,
+  "rz": 22,
+  "y": 14.5,
+  "drape": false
+ },
+ {
+  "x": -811.5,
+  "n": 2530.7,
+  "rx": 13,
+  "rz": 12
+ },
+ {
+  "x": -843.8,
+  "n": 2540.4,
+  "rx": 17,
+  "rz": 6
+ }
+]

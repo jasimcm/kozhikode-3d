@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kozhikode 3D</title>
+<meta name="description" content="Kozhikode in 3D: every building, road, river and hill placed from real map data. Fly the city, take a food trail, send a postcard.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Malayalam:wght@400;500;600&family=Caveat:wght@500&family=DM+Sans:wght@400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=IBM+Plex+Mono:wght@400;500&family=Jost:wght@600;700&family=Noto+Sans+Malayalam:wght@600&family=Playfair+Display:ital,wght@1,500&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.min.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="labels"></div>
+
+<div id="loader">
+  <div class="lin">
+    <p class="mlh">കോഴിക്കോട്</p>
+    <h1>Kozhikode</h1>
+    <p class="tag">the city of spices, in three dimensions</p>
+    <div id="bar"><i></i></div>
+    <p id="stage">Reading the map</p>
+  </div>
+</div>
+
+<header id="title">
+  <p class="ml">കോഴിക്കോട്</p>
+  <h1>Kozhikode</h1>
+  <p class="sub"><b id="count">–</b> buildings, placed from the map</p>
+  <nav id="actions">
+    <button id="bTour"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span><b>City tour</b><i>9 stops, old Calicut</i></span></button>
+    <button id="bFood"><svg viewBox="0 0 24 24"><path d="M6 3v8a2 2 0 0 0 4 0V3M8 3v18M17 3c-2 1-3 3.5-3 6s1 3 3 3v9"/></svg><span><b>Food trail</b><i>17 local picks</i></span></button>
+    <button id="bCard"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M12 9v6M15 9h3v3h-3zM6 10h3M6 13h3"/></svg><span><b>Postcard</b><i>Take a view home</i></span></button>
+  </nav>
+</header>
+
+<div class="panel" id="tools">
+  <button id="compass" title="Face north"><svg id="needle" viewBox="0 0 24 24"><path d="M12 3l4 10h-8z" fill="#ffb347"/><path d="M12 21l-4-8h8z" fill="#7d8798"/></svg></button>
+  <button id="tLabels" class="tg on">Labels</button>
+  <button id="tWards" class="tg">Wards</button>
+  <button id="tMl" class="tg" title="Malayalam place names">മലയാളം</button>
+  <select id="quality" title="Detail"><option value="auto">Auto</option><option value="low">Low detail</option><option value="medium">Medium detail</option><option value="high">High detail</option></select>
+  <button id="bAbout" class="tg">About</button>
+</div>
+
+<div id="hint">Drag to move · scroll or pinch to zoom · right-drag or Ctrl-drag to turn · WASD to fly</div>
+
+<div id="hud"><b id="hudName">Kozhikode</b><span id="hudPos"></span></div>
+
+<section class="panel" id="tour">
+  <div class="th"><span id="tourKind"></span><span id="tourStep"></span><button id="tourEnd" title="End tour">✕</button></div>
+  <div class="tn"><em id="tourNo">01</em><h2 id="tourName"></h2></div>
+  <p id="tourSub"></p>
+  <p id="tourText"></p>
+  <div id="dots"></div>
+  <div class="tb"><button id="tourPrev">← Back</button><button id="tourAuto">Autoplay</button><button id="tourNext" class="pri">Next stop →</button></div>
+  <p class="fine">Check opening hours before you go.</p>
+</section>
+
+<div class="panel" id="dock">
+  <div id="chips"></div>
+  <div id="timeRow">
+    <span id="clock">17:30 IST</span>
+    <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>
+    <input id="time" type="range" min="5.5" max="22.5" step="0.02" value="17.6" aria-label="Time of day">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500z"/></svg>
+    <div id="presets"><button data-t="6.95">Sunrise</button><button data-t="12.6">Midday</button><button data-t="17.6">Golden hour</button><button data-t="20.5">Night</button></div>
+  </div>
+</div>
+
+<aside class="panel" id="about">
+  <div class="ah"><h2>ABOUT THIS MODEL</h2><button data-close>Close</button></div>
+  <p>Every building, road, rail line, river, shoreline and hill is placed from real map data in a single metric grid centred on Kozhikode. Surfaces are generated on top of that geometry.</p>
+  <p>Detailed 3D covers the city core and coast (13 × 16.6 km), from Beypore and Chaliyam in the south to East Hill and Varakkal in the north, and inland past Medical College. Around it, the district out to the Western Ghats foothills is shown as terrain and satellite imagery.</p>
+  <h3>Where building heights come from</h3>
+  <div class="row"><span>Mapped height or floor count</span><div class="m"><i id="aMappedBar"></i></div><b id="aMapped"></b></div>
+  <div class="row"><span>Estimated from footprint size</span><div class="m"><i id="aEstBar"></i></div><b id="aEst"></b></div>
+  <p>Only <span id="aMappedN"></span> of <span id="aCount"></span> buildings carry a height or floor count in the map. The rest are estimated from footprint area and distance from the city centre, so individual heights are plausible, not measured. Tall apartment towers are under-represented.</p>
+  <h3>Real</h3>
+  <ul><li>Building footprints and positions</li><li>Terrain, coastline, rivers, canals and ponds</li><li>Roads and rail alignments</li><li>Ground colour, from satellite imagery</li><li><span id="aWards"></span> corporation ward boundaries</li><li>Sun position for Kozhikode on 15 January</li></ul>
+  <h3>Generated</h3>
+  <ul><li>Building heights (see above), roof shapes, wall colours, windows and night lights</li><li><span id="aTrees"></span> trees and palms, scattered where the satellite image is green</li><li>Wave motion, street-light glow</li><li>Landmark models (beach lighthouse, Mishkal Mosque, Tali Temple, EMS Stadium, the Planetarium, CSI and Mother of God cathedrals, Chaliyam lighthouse, sea-pier ruins, a Beypore uru), built by hand and stylised; pier and uru positions are approximate</li></ul>
+  <h3>Limits</h3>
+  <ul><li>Ground imagery is 10 m per pixel, so streets blur when you are close.</li><li>Food-trail and landmark pins use map-listed coordinates (seven food spots were located by a map search); a few may be off by a building or two.</li><li>Ward boundaries are the 2024–25 delimitation layers as published for public consultation, and may differ from the final notified wards.</li></ul>
+  <h3>Data</h3>
+  <ul class="src"><li>Buildings, roads, rail, water, places, localities: Overture Maps Foundation release 2026-10-21.0 (includes OpenStreetMap contributors, ODbL; Google Open Buildings; Microsoft ML Buildings)</li><li>Terrain: Mapzen / AWS Terrain Tiles (SRTM and other open elevation sources)</li><li>Ground imagery: Sentinel-2 cloudless 2020 by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2020), CC BY-NC-SA 4.0</li><li>Ward boundaries: Delimitation Commission, Kerala / Information Kerala Mission (K-SMART ward map)</li></ul>
+</aside>
+
+<div id="postcard">
+  <div class="pc panel">
+    <div class="ah"><h2>SEND A POSTCARD</h2><button data-close>Close</button></div>
+    <canvas id="pcCanvas"></canvas>
+    <div class="pcf">
+      <div id="pcStyles"><button data-s="classic" class="on">Classic</button><button data-s="bold">Full bleed</button></div>
+      <input id="pcMsg" maxlength="48" placeholder="Add a line (optional)">
+      <input id="pcFrom" maxlength="20" placeholder="From">
+    </div>
+    <div class="pcb"><button id="pcLink">Copy link to this view</button><button id="pcShare">Share</button><button id="pcSave" class="pri">Download PNG</button></div>
+    <p class="fine">The card shows the view you had on screen. Close this, reframe or change the time of day, and open it again for a new shot.</p>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

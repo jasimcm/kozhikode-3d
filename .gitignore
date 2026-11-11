@@ -1,0 +1,9 @@
+data/raw/
+pipeline/.venv/
+pipeline/__pycache__/
+pipeline/fetch.log
+models/*.blend
+models/*.blend1
+.vercel/
+.claude/
+.DS_Store

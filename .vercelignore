@@ -1,0 +1,5 @@
+pipeline
+data/raw
+.claude
+serve.py
+models/*.blend
